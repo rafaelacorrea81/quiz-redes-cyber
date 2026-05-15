@@ -1,5 +1,5 @@
 // script.js — Quiz Segurança de Redes
-// Correções: category/level fields, filtros ranking, navegação anterior/próximo
+// Correções: Banco grande, sorteio aleatório, embaralhamento de respostas, explicações pedagógicas, e ranking completo.
 
 import { db, collection, addDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp } from './firebase-config.js';
 import { quizFundamentos, quizRiscos, quizCyberAvancado } from './perguntas.js';
@@ -123,7 +123,15 @@ function startQuiz() {
     msgEl.classList.remove('visivel');
     state.nickname=nick;
     const cfg=QUIZ_CONFIG[state.quizSelecionado];
-    state.perguntas=shuffle(cfg.perguntas).slice(0,TOTAL_PERGUNTAS);
+    
+    // Seleciona 15 perguntas aleatórias e embaralha as opções de cada uma
+    state.perguntas = shuffle(cfg.perguntas).slice(0, TOTAL_PERGUNTAS).map(q => {
+        return {
+            ...q,
+            shuffledOptions: shuffle(q.options)
+        };
+    });
+    
     state.perguntaAtual=0; state.respostas=new Array(TOTAL_PERGUNTAS).fill(null);
     state.pontuacao=0; state.bonusTotal=0; state.tempoTotalUsado=0; state.respondida=false;
     const fill=$('progress-fill'); fill.className='progress-bar-fill';
@@ -142,11 +150,13 @@ function loadQuestion() {
 
     $('quiz-progresso').textContent=`${num}/${TOTAL_PERGUNTAS}`;
     $('progress-fill').style.width=`${(num/TOTAL_PERGUNTAS)*100}%`;
-    $('pergunta-texto').textContent=q.pergunta;
+    $('pergunta-texto').textContent=q.question;
 
     const lista=$('opcoes-lista'); lista.innerHTML='';
     const letras=['A','B','C','D'];
-    q.opcoes.forEach((op,i)=>{
+    
+    // Usa as opções embaralhadas
+    q.shuffledOptions.forEach((op,i)=>{
         const btn=document.createElement('button'); btn.className='opcao-btn'; btn.type='button';
         const letra=document.createElement('span'); letra.className='opcao-letra'; letra.textContent=letras[i];
         const txt=document.createElement('span'); txt.textContent=op;
@@ -165,10 +175,11 @@ function loadQuestion() {
         const btns=$('opcoes-lista').querySelectorAll('.opcao-btn');
         btns.forEach((btn,i)=>{
             btn.disabled=true;
-            if(i===q.resposta) btn.classList.add('correta');
+            const opText = q.shuffledOptions[i];
+            if(opText === q.correctAnswer) btn.classList.add('correta');
             if(i===prev.selected&&!prev.correct) btn.classList.add('errada');
         });
-        showFeedbackDisplay(prev.correct, q.explicacao, prev.selected===-1, prev.bonus);
+        showFeedbackDisplay(prev.correct, q, prev.selected===-1, prev.bonus);
         updateTimerDisplay(0, cfg.tempo);
         $('timer-fill').style.width='0%';
     } else {
@@ -188,11 +199,11 @@ function updateNavButtons() {
     // Show nav when answered OR when revisiting
     if(isAnswered) {
         nav.style.display='flex';
+        btnProx.textContent = state.perguntaAtual < TOTAL_PERGUNTAS - 1 ? 'Continuar ➡️' : 'Ver Resultado 🏁';
     } else {
         nav.style.display='none';
     }
     btnAnt.disabled=state.perguntaAtual===0;
-    btnProx.textContent=state.perguntaAtual<TOTAL_PERGUNTAS-1?'Próxima ➡️':'Ver Resultado 🏁';
 }
 
 // ========== TIMER ==========
@@ -224,11 +235,21 @@ function stopTimer(){clearInterval(state.timerInterval);return (Date.now()-state
 function handleAnswer(selected) {
     if(state.respondida) return;
     state.respondida=true;
-    const elapsed=stopTimer();
+    const elapsed=stopTimer(); // Pausa o temporizador
     const cfg=QUIZ_CONFIG[state.quizSelecionado], q=state.perguntas[state.perguntaAtual];
-    const correct=q.resposta===selected;
+    
+    // Compara o valor da opção selecionada com a resposta correta
+    const selectedOptionText = q.shuffledOptions[selected];
+    const correct = selectedOptionText === q.correctAnswer;
+    
     const btns=$('opcoes-lista').querySelectorAll('.opcao-btn');
-    btns.forEach((btn,i)=>{btn.disabled=true;if(i===q.resposta)btn.classList.add('correta');if(i===selected&&!correct)btn.classList.add('errada');});
+    btns.forEach((btn,i)=>{
+        btn.disabled=true;
+        const opText = q.shuffledOptions[i];
+        if(opText === q.correctAnswer) btn.classList.add('correta');
+        if(i===selected&&!correct) btn.classList.add('errada');
+    });
+    
     let bonus=0;
     if(correct){const ratio=Math.max(0,state.tempoRestante/cfg.tempo);bonus=Math.round(cfg.bonusMax*ratio);}
 
@@ -242,7 +263,8 @@ function handleAnswer(selected) {
     state.respostas[state.perguntaAtual]={question:state.perguntaAtual,selected,correct,elapsed,bonus};
     if(correct){state.pontuacao+=cfg.pontosPorAcerto+bonus;state.bonusTotal+=bonus;}
     state.tempoTotalUsado+=elapsed;
-    showFeedbackDisplay(correct,q.explicacao,false,bonus);
+    
+    showFeedbackDisplay(correct, q, false, bonus);
     updateNavButtons();
 }
 
@@ -252,23 +274,63 @@ function handleTimeout() {
     const cfg=QUIZ_CONFIG[state.quizSelecionado], q=state.perguntas[state.perguntaAtual];
     const elapsed=cfg.tempo;
     const btns=$('opcoes-lista').querySelectorAll('.opcao-btn');
-    btns.forEach((btn,i)=>{btn.disabled=true;if(i===q.resposta)btn.classList.add('correta');});
+    btns.forEach((btn,i)=>{
+        const opText = q.shuffledOptions[i];
+        btn.disabled=true;
+        if(opText === q.correctAnswer) btn.classList.add('correta');
+    });
     state.respostas[state.perguntaAtual]={question:state.perguntaAtual,selected:-1,correct:false,elapsed,bonus:0};
     state.tempoTotalUsado+=elapsed;
-    showFeedbackDisplay(false,q.explicacao,true,0);
+    showFeedbackDisplay(false, q, true, 0);
     updateNavButtons();
 }
 
-function showFeedbackDisplay(correct,explicacao,timeout,bonus) {
+function showFeedbackDisplay(correct, q, timeout, bonus) {
     const fb=$('feedback-box'); fb.classList.remove('acerto','erro','tempo');
-    if(timeout){fb.classList.add('tempo','visivel');$('feedback-titulo').textContent=rndMsg(MSG_TEMPO);$('feedback-incentivo').textContent='';}
-    else if(correct){fb.classList.add('acerto','visivel');$('feedback-titulo').textContent=`✅ Correto! ${bonus>0?`(+${bonus} bônus)`:''}`; $('feedback-incentivo').textContent=rndMsg(MSG_ACERTO);}
-    else{fb.classList.add('erro','visivel');$('feedback-titulo').textContent='❌ Incorreto!';$('feedback-incentivo').textContent=rndMsg(MSG_ERRO);}
-    $('feedback-explicacao').textContent=explicacao;
+    const titulo=$('feedback-titulo');
+    const explicacao=$('feedback-explicacao');
+    const incentivo=$('feedback-incentivo');
+    
+    let htmlContent = '';
+    
+    if(timeout){
+        fb.classList.add('tempo','visivel');
+        titulo.innerHTML = `⏰ ${rndMsg(MSG_TEMPO)}`;
+        htmlContent = `A resposta correta era: <strong>${q.correctAnswer}</strong><br><br>${q.explanation.correct}`;
+    }
+    else if(correct){
+        fb.classList.add('acerto','visivel');
+        titulo.innerHTML = `✅ Resposta Correta! ${bonus>0?`(+${bonus} bônus)`:''}`;
+        htmlContent = `${q.explanation.correct}`;
+    }
+    else{
+        fb.classList.add('erro','visivel');
+        titulo.innerHTML = `❌ Resposta Incorreta!`;
+        htmlContent = `A alternativa correta era: <strong>${q.correctAnswer}</strong><br><br>${q.explanation.correct}`;
+    }
+    
+    // Adiciona detalhes e dica se existirem
+    if (q.explanation.details && q.explanation.details.length > 0) {
+        htmlContent += `<br><br><strong>Detalhes:</strong><ul>`;
+        q.explanation.details.forEach(det => {
+            htmlContent += `<li>${det}</li>`;
+        });
+        htmlContent += `</ul>`;
+    }
+    
+    if (q.explanation.tip) {
+        htmlContent += `<br><strong>💡 Dica:</strong> ${q.explanation.tip}`;
+    }
+    
+    explicacao.innerHTML = htmlContent;
+    incentivo.textContent = correct ? rndMsg(MSG_ACERTO) : rndMsg(MSG_ERRO);
 }
 
 // ========== NAVIGATION ==========
 function nextQuestion() {
+    const prev=state.respostas[state.perguntaAtual];
+    if (prev === null) return; // Só avança se respondida
+    
     state.perguntaAtual++;
     if(state.perguntaAtual<TOTAL_PERGUNTAS){loadQuestion();}
     else{showResults();}
@@ -354,10 +416,11 @@ function loadRanking(filter='todos') {
 
     try {
         let q;
+        // Removido o limit(10) para exibir todos os jogadores conforme solicitado
         if(filter&&filter!=='todos'){
-            q=query(collection(db,'quizResults'),where('category','==',filter),orderBy('score','desc'),orderBy('timeUsed','asc'),limit(10));
+            q=query(collection(db,'quizResults'),where('category','==',filter),orderBy('score','desc'),orderBy('timeUsed','asc'));
         } else {
-            q=query(collection(db,'quizResults'),orderBy('score','desc'),orderBy('timeUsed','asc'),limit(10));
+            q=query(collection(db,'quizResults'),orderBy('score','desc'),orderBy('timeUsed','asc'));
         }
 
         unsubscribeRanking=onSnapshot(q,snapshot=>{
