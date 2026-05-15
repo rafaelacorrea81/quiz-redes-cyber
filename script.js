@@ -11,28 +11,40 @@ const ANTI_SPAM_MS = 3000;
 
 const QUIZ_CONFIG = {
     'fundamentos': {
+        quizId: 'fundamentos',
+        quizTitle: 'Fundamentos de Segurança de Redes',
+        subject: 'Segurança de Redes',
         nome: 'Fundamentos de Segurança de Redes',
         perguntas: quizFundamentos,
         tempo: 45, alertaTempo: 10,
         pontosPorAcerto: 10, bonusMax: 5,
-        category: 'fundamentos', level: 'facil',
-        cor: 'fundamentos', icon: '🟢'
+        category: 'fundamentos', level: 'Fácil',
+        cor: 'fundamentos', icon: '🟢',
+        difficulty: 'Fácil'
     },
     'riscos': {
+        quizId: 'riscos',
+        quizTitle: 'Análise de Riscos e Cenários',
+        subject: 'Segurança de Redes',
         nome: 'Análise de Riscos e Cenários',
         perguntas: quizRiscos,
         tempo: 120, alertaTempo: 20,
         pontosPorAcerto: 20, bonusMax: 10,
-        category: 'riscos', level: 'medio',
-        cor: 'riscos', icon: '🟡'
+        category: 'riscos', level: 'Médio',
+        cor: 'riscos', icon: '🟡',
+        difficulty: 'Médio'
     },
     'cyber': {
+        quizId: 'cyber',
+        quizTitle: 'Desafio Cyber Avançado',
+        subject: 'Segurança de Redes',
         nome: 'Desafio Cyber Avançado',
         perguntas: quizCyberAvancado,
         tempo: 150, alertaTempo: 30,
         pontosPorAcerto: 30, bonusMax: 15,
-        category: 'cyber', level: 'dificil',
-        cor: 'cyber', icon: '🔴'
+        category: 'cyber', level: 'Difícil',
+        cor: 'cyber', icon: '🔴',
+        difficulty: 'Difícil'
     }
 };
 
@@ -42,7 +54,7 @@ const MSG_ERRO = ["Atenção ao risco! ⚠️","Incidente detectado! 🚨","Brec
 const MSG_TEMPO = ["Tempo esgotado! ⏰","Timeout na conexão! ⌛","Sessão expirada! 🕐"];
 
 let state = {
-    nickname: '', avatar: '🛡️', quizSelecionado: null,
+    nickname: '', className: '', avatar: '🛡️', quizSelecionado: null,
     perguntaAtual: 0, perguntas: [], respostas: [],
     pontuacao: 0, bonusTotal: 0,
     timerInterval: null, tempoRestante: 0, tempoInicioPergunta: 0,
@@ -74,16 +86,17 @@ function loadPrefs() {
     try {
         const s=localStorage.getItem('quizRedesCyber_prefs');
         if(s){ const p=JSON.parse(s);
-            if(p.nickname){$('nickname').value=p.nickname.substring(0,MAX_NICK_LENGTH);$('nick-count').textContent=p.nickname.length;}
+            if(p.nickname){$('nickname').value=p.nickname.substring(0,MAX_NICK_LENGTH);$('nick-count').textContent=p.nickname.length;state.nickname=p.nickname;}
+            if(p.className){$('className').value=p.className;state.className=p.className;}
             if(p.avatar&&AVATARS.includes(p.avatar)){state.avatar=p.avatar;$('avatar-grid').querySelectorAll('.avatar-option').forEach(b=>b.classList.toggle('selecionado',b.textContent===p.avatar));}
             if(p.privacyAccepted)$('aceite-privacidade').checked=true;
         }
     } catch(e){}
 }
-function savePrefs() { try{localStorage.setItem('quizRedesCyber_prefs',JSON.stringify({nickname:$('nickname').value.substring(0,MAX_NICK_LENGTH),avatar:state.avatar,privacyAccepted:$('aceite-privacidade').checked}));}catch(e){} }
+function savePrefs() { try{localStorage.setItem('quizRedesCyber_prefs',JSON.stringify({nickname:$('nickname').value.substring(0,MAX_NICK_LENGTH),className:$('className').value.trim(),avatar:state.avatar,privacyAccepted:$('aceite-privacidade').checked}));}catch(e){} }
 function clearPrefs() {
     try{localStorage.removeItem('quizRedesCyber_prefs');localStorage.removeItem('quizRedesCyber_cookieAccepted');
-    $('nickname').value='';$('nick-count').textContent='0';$('aceite-privacidade').checked=false;state.avatar='🛡️';
+    $('nickname').value='';$('nick-count').textContent='0';$('className').value='';$('aceite-privacidade').checked=false;state.avatar='🛡️';
     $('avatar-grid').querySelectorAll('.avatar-option').forEach(b=>b.classList.toggle('selecionado',b.textContent==='🛡️'));
     document.querySelectorAll('.quiz-card').forEach(c=>c.classList.remove('selecionado'));state.quizSelecionado=null;
     $('cookie-banner').classList.add('visivel');}catch(e){}
@@ -92,7 +105,8 @@ function checkCookieBanner() { try{if(!localStorage.getItem('quizRedesCyber_cook
 
 // ========== EVENTS ==========
 function initEvents() {
-    $('nickname').addEventListener('input',()=>{const v=$('nickname').value.substring(0,MAX_NICK_LENGTH);$('nickname').value=v;$('nick-count').textContent=v.length;savePrefs();});
+    $('nickname').addEventListener('input',()=>{const v=$('nickname').value.substring(0,MAX_NICK_LENGTH);$('nickname').value=v;$('nick-count').textContent=v.length;state.nickname=v;savePrefs();});
+    $('className').addEventListener('input',()=>{state.className=$('className').value.trim();savePrefs();});
     document.querySelectorAll('.quiz-card').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.quiz-card').forEach(x=>x.classList.remove('selecionado'));c.classList.add('selecionado');state.quizSelecionado=c.dataset.quiz;}));
     $('aceite-privacidade').addEventListener('change',savePrefs);
     $('btn-iniciar').addEventListener('click',startQuiz);
@@ -115,13 +129,15 @@ function initEvents() {
 
 // ========== START QUIZ ==========
 function startQuiz() {
-    const nick=sanitize($('nickname').value.trim()), msgEl=$('msg-validacao');
+    const nick=sanitize($('nickname').value.trim()), turma=sanitize($('className').value.trim()), msgEl=$('msg-validacao');
     if(!nick||nick.length<2){showError(msgEl,'👤 Digite um apelido com pelo menos 2 caracteres.');return;}
+    if(!turma){showError(msgEl,'🏫 Digite sua turma para continuar.');return;}
     if(nick.length>MAX_NICK_LENGTH){showError(msgEl,'👤 O apelido deve ter no máximo 30 caracteres.');return;}
     if(!$('aceite-privacidade').checked){showError(msgEl,'🔒 Você precisa aceitar a Política de Privacidade para continuar.');return;}
     if(!state.quizSelecionado||!QUIZ_CONFIG[state.quizSelecionado]){showError(msgEl,'🎯 Selecione um dos 3 quizzes para iniciar.');return;}
     msgEl.classList.remove('visivel');
     state.nickname=nick;
+    state.className=turma;
     const cfg=QUIZ_CONFIG[state.quizSelecionado];
     
     // Seleciona 15 perguntas aleatórias e embaralha as opções de cada uma
@@ -385,17 +401,30 @@ async function saveToFirestore(acertos,erros,tempoMedio) {
     const maxPossible=TOTAL_PERGUNTAS*(cfg.pontosPorAcerto+cfg.bonusMax);
     if(state.pontuacao<0||state.pontuacao>maxPossible){statusEl.textContent='Erro na validação da pontuação.';return;}
 
+    const percentage=Math.round((acertos/TOTAL_PERGUNTAS)*100);
+
     const data={
-        nickname: state.nickname.substring(0,MAX_NICK_LENGTH),
+        // New structure (multiquiz)
+        studentName: state.nickname.substring(0,MAX_NICK_LENGTH),
+        className: state.className || 'Não informada',
         avatar: state.avatar,
+        quizId: cfg.quizId,
+        difficulty: cfg.difficulty,
+        quizTitle: cfg.quizTitle,
+        subject: cfg.subject,
+        score: state.pontuacao,
+        totalQuestions: TOTAL_PERGUNTAS,
+        percentage: percentage,
+
+        // Legacy compatibility
+        nickname: state.nickname.substring(0,MAX_NICK_LENGTH),
         category: cfg.category,
         level: cfg.level,
-        score: state.pontuacao,
         correctAnswers: acertos,
         wrongAnswers: erros,
-        totalQuestions: TOTAL_PERGUNTAS,
         timeUsed: Math.round(state.tempoTotalUsado*100)/100,
         averageTime: Math.round(tempoMedio*100)/100,
+        
         acceptedPrivacyPolicy: true,
         privacyPolicyVersion: PRIVACY_VERSION,
         createdAt: serverTimestamp()
@@ -416,11 +445,23 @@ function loadRanking(filter='todos') {
 
     try {
         let q;
-        // Removido o limit(10) para exibir todos os jogadores conforme solicitado
+        // Filtra por quizId se um filtro estiver ativo
         if(filter&&filter!=='todos'){
-            q=query(collection(db,'quizResults'),where('category','==',filter),orderBy('score','desc'),orderBy('timeUsed','asc'));
+            // Nota: Para usar multiple orderBy com where, é necessário índice composto no Firestore
+            q=query(
+                collection(db,'quizResults'),
+                where('quizId','==',filter),
+                orderBy('score','desc'),
+                orderBy('timeUsed','asc'),
+                orderBy('createdAt','asc')
+            );
         } else {
-            q=query(collection(db,'quizResults'),orderBy('score','desc'),orderBy('timeUsed','asc'));
+            q=query(
+                collection(db,'quizResults'),
+                orderBy('score','desc'),
+                orderBy('timeUsed','asc'),
+                orderBy('createdAt','asc')
+            );
         }
 
         unsubscribeRanking=onSnapshot(q,snapshot=>{
@@ -439,10 +480,16 @@ function loadRanking(filter='todos') {
 
                 const avatarEl=document.createElement('div'); avatarEl.className='ranking-avatar'; avatarEl.textContent=d.avatar||'🛡️';
                 const infoEl=document.createElement('div'); infoEl.className='ranking-info';
-                const nickEl=document.createElement('div'); nickEl.className='ranking-nick'; nickEl.textContent=d.nickname||'Anônimo';
+                
+                const nickEl=document.createElement('div'); nickEl.className='ranking-nick'; 
+                const displayName = d.studentName || d.nickname || 'Anônimo';
+                const displayClass = d.className ? ` [${d.className}]` : '';
+                nickEl.textContent = displayName + displayClass;
+
                 const tagEl=document.createElement('div'); tagEl.className='ranking-quiz-tag';
-                const quizConf=QUIZ_CONFIG[d.category];
-                tagEl.textContent=quizConf?`${quizConf.icon} ${d.correctAnswers||0}/${d.totalQuestions||15} • ${d.level||''}`:(d.category||'');
+                const quizConf=QUIZ_CONFIG[d.quizId || d.category];
+                const displayCorrect = d.correctAnswers !== undefined ? d.correctAnswers : (d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
+                tagEl.textContent=quizConf?`${quizConf.icon} ${Math.floor(displayCorrect)}/${d.totalQuestions||15} • ${d.difficulty||d.level||''}`:(d.quizId||d.category||'');
                 infoEl.appendChild(nickEl); infoEl.appendChild(tagEl);
 
                 const scoreEl=document.createElement('div'); scoreEl.className='ranking-score'; scoreEl.textContent=d.score;
