@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Quiz gamificado de Segurança de Redes — Teste seus conhecimentos em segurança da informação, protocolos, ataques, análise de riscos, LGPD e defesa de redes. Curso Técnico em Redes de Computadores — CEET Vasco Coutinho.">
+    <title>🛡️ Quiz Segurança de Redes – Desafio Técnico</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+    <!-- ============================================ -->
+    <!-- TELA INICIAL                                 -->
+    <!-- ============================================ -->
+    <section id="tela-inicio" class="tela ativa">
+        <div class="titulo-principal">
+            <h1>🛡️ Quiz Segurança de Redes – Desafio Técnico</h1>
+            <p class="subtitulo">Teste seus conhecimentos em Segurança da Informação, protocolos, ataques, análise de riscos, privacidade, LGPD e defesa de redes.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:1.25rem;">
+            <div class="form-section">
+                <label for="nickname">👤 Nickname / Apelido</label>
+                <input type="text" id="nickname" class="input-field" placeholder="Digite seu apelido..." maxlength="30" autocomplete="off">
+                <div class="char-counter"><span id="nick-count">0</span>/30</div>
+            </div>
+
+            <div class="form-section">
+                <label>🎭 Escolha seu Avatar</label>
+                <div class="avatar-grid" id="avatar-grid"></div>
+            </div>
+
+            <div class="privacy-check">
+                <input type="checkbox" id="aceite-privacidade">
+                <label for="aceite-privacidade">
+                    Li e aceito a <a href="#" id="link-privacidade">Política de Privacidade e Uso de Dados</a>. Entendo que meu apelido e pontuação serão exibidos no ranking pedagógico.
+                </label>
+            </div>
+        </div>
+
+        <label style="display:block;font-weight:600;font-size:.9rem;color:var(--text-secondary);margin-bottom:.75rem;">🎯 Escolha o Quiz</label>
+        <div class="quiz-cards" id="quiz-cards">
+            <div class="quiz-card fundamentos" data-quiz="fundamentos">
+                <div class="card-icon">🟢</div>
+                <h3>Fundamentos de Segurança de Redes</h3>
+                <p class="card-desc">Revise os principais conceitos de Segurança da Informação, redes, protocolos e boas práticas.</p>
+                <div class="card-meta">
+                    <span class="meta-tag">🛡️ 15 perguntas</span>
+                    <span class="meta-tag">⏱️ 45s cada</span>
+                    <span class="meta-tag">⭐ Fácil</span>
+                </div>
+            </div>
+            <div class="quiz-card riscos" data-quiz="riscos">
+                <div class="card-icon">🟡</div>
+                <h3>Análise de Riscos e Cenários</h3>
+                <p class="card-desc">Analise situações reais, classifique riscos e escolha medidas de tratamento adequadas.</p>
+                <div class="card-meta">
+                    <span class="meta-tag">⚠️ 15 perguntas</span>
+                    <span class="meta-tag">⏱️ 2min cada</span>
+                    <span class="meta-tag">⭐⭐ Médio</span>
+                </div>
+            </div>
+            <div class="quiz-card cyber" data-quiz="cyber-avancado">
+                <div class="card-icon">🔴</div>
+                <h3>Desafio Cyber Avançado</h3>
+                <p class="card-desc">Enfrente cenários avançados de segurança, incidentes, SIEM, GRC, LGPD e resposta técnica.</p>
+                <div class="card-meta">
+                    <span class="meta-tag">🔥 15 perguntas</span>
+                    <span class="meta-tag">⏱️ 2:30 cada</span>
+                    <span class="meta-tag">⭐⭐⭐ Difícil</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="msg-validacao" class="msg-erro"></div>
+
+        <div class="btn-group">
+            <button id="btn-iniciar" class="btn btn-primary">🚀 Iniciar Quiz</button>
+            <button id="btn-ver-ranking" class="btn btn-secondary">🏆 Ver Ranking</button>
+            <button id="btn-limpar-prefs" class="btn btn-danger">🗑️ Limpar Preferências</button>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- TELA DO QUIZ                                 -->
+    <!-- ============================================ -->
+    <section id="tela-quiz" class="tela">
+        <div class="quiz-header">
+            <div class="quiz-title" id="quiz-titulo-header">🛡️ Quiz</div>
+            <div class="quiz-progress" id="quiz-progresso">1/15</div>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-fill"></div>
+            </div>
+        </div>
+
+        <div class="timer-container" id="timer-container">
+            <div class="timer-bar-bg">
+                <div class="timer-bar-fill" id="timer-fill"></div>
+            </div>
+            <div class="timer-text" id="timer-text">0:45</div>
+        </div>
+        <div class="timer-alert" id="timer-alert">⚠️ Tempo acabando!</div>
+
+        <div class="pergunta-card">
+            <p class="pergunta-texto" id="pergunta-texto">Carregando pergunta...</p>
+            <div class="opcoes-lista" id="opcoes-lista"></div>
+            <div class="feedback-box" id="feedback-box">
+                <div class="feedback-titulo" id="feedback-titulo"></div>
+                <p class="feedback-explicacao" id="feedback-explicacao"></p>
+                <p class="feedback-incentivo" id="feedback-incentivo"></p>
+            </div>
+            <button class="btn btn-primary btn-proxima" id="btn-proxima" style="display:none;">Próxima Pergunta ➡️</button>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- TELA DE RESULTADO                            -->
+    <!-- ============================================ -->
+    <section id="tela-resultado" class="tela">
+        <div class="resultado-header">
+            <div class="resultado-avatar" id="resultado-avatar">🛡️</div>
+            <div class="resultado-nickname" id="resultado-nickname">Jogador</div>
+            <div class="resultado-quiz-nome" id="resultado-quiz-nome">Quiz Realizado</div>
+        </div>
+
+        <div class="resultado-medalha" id="resultado-medalha">
+            <span class="medalha-icon" id="medalha-icon">🛡️</span>
+            <span id="medalha-texto">Aprendiz de Defesa</span>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card pontos">
+                <div class="stat-valor" id="stat-pontos">0</div>
+                <div class="stat-label">Pontuação</div>
+            </div>
+            <div class="stat-card acertos">
+                <div class="stat-valor" id="stat-acertos">0</div>
+                <div class="stat-label">Acertos</div>
+            </div>
+            <div class="stat-card erros">
+                <div class="stat-valor" id="stat-erros">0</div>
+                <div class="stat-label">Erros</div>
+            </div>
+            <div class="stat-card tempo">
+                <div class="stat-valor" id="stat-tempo">0s</div>
+                <div class="stat-label">Tempo Total</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-valor" id="stat-medio">0s</div>
+                <div class="stat-label">Tempo Médio</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-valor" id="stat-bonus">0</div>
+                <div class="stat-label">Bônus Tempo</div>
+            </div>
+        </div>
+
+        <div id="resultado-status" style="text-align:center;font-size:.85rem;color:var(--text-muted);margin:.75rem 0;"></div>
+
+        <div class="btn-group">
+            <button id="btn-ranking-resultado" class="btn btn-primary">🏆 Ver Ranking</button>
+            <button id="btn-jogar-novamente" class="btn btn-secondary">🔄 Jogar Novamente</button>
+            <button id="btn-voltar-inicio" class="btn btn-secondary">🏠 Voltar ao Início</button>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- TELA DE RANKING                              -->
+    <!-- ============================================ -->
+    <section id="tela-ranking" class="tela">
+        <div class="titulo-principal">
+            <h1>🏆 Ranking</h1>
+            <p class="subtitulo">Os melhores defensores da rede</p>
+        </div>
+
+        <div class="ranking-filtros" id="ranking-filtros">
+            <button class="filtro-btn ativo" data-filtro="todos">Todos</button>
+            <button class="filtro-btn" data-filtro="fundamentos">🟢 Fundamentos</button>
+            <button class="filtro-btn" data-filtro="riscos">🟡 Riscos</button>
+            <button class="filtro-btn" data-filtro="cyber-avancado">🔴 Cyber</button>
+        </div>
+
+        <div class="ranking-lista" id="ranking-lista">
+            <div class="ranking-loading">Carregando ranking...</div>
+        </div>
+
+        <div class="btn-group" style="margin-top:1.5rem;">
+            <button id="btn-voltar-ranking" class="btn btn-secondary">🏠 Voltar ao Início</button>
+        </div>
+    </section>
+
+    <!-- ============================================ -->
+    <!-- MODAL DE PRIVACIDADE                         -->
+    <!-- ============================================ -->
+    <div class="modal-overlay" id="modal-privacidade">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-fechar">&times;</button>
+            <h2>🔒 Política de Privacidade e Uso de Dados</h2>
+            <p><strong>Versão 1.0</strong> — Última atualização: Maio de 2026</p>
+
+            <h3>1. Finalidade</h3>
+            <p>Este quiz é uma ferramenta pedagógica desenvolvida para a disciplina de Segurança de Redes do Curso Técnico em Redes de Computadores do CEET Vasco Coutinho. Seu objetivo é auxiliar na revisão e fixação de conteúdos.</p>
+
+            <h3>2. Dados Coletados</h3>
+            <ul>
+                <li>Nickname/apelido escolhido pelo aluno</li>
+                <li>Avatar/emoji selecionado</li>
+                <li>Quiz realizado e dificuldade</li>
+                <li>Pontuação, acertos e erros</li>
+                <li>Tempo utilizado</li>
+                <li>Data e hora da participação</li>
+                <li>Aceite da política de privacidade e versão</li>
+            </ul>
+
+            <h3>3. Dados NÃO Coletados</h3>
+            <ul>
+                <li>Nome completo, CPF, RG</li>
+                <li>E-mail, telefone, endereço</li>
+                <li>Localização geográfica precisa</li>
+                <li>Dados sensíveis ou biométricos</li>
+                <li>Endereço IP (não coletado diretamente no front-end)</li>
+            </ul>
+
+            <h3>4. Armazenamento</h3>
+            <p>Os resultados são armazenados no Firebase Firestore (Google Cloud) para exibição do ranking pedagógico. O armazenamento local do navegador (localStorage) pode ser utilizado para lembrar seu apelido, avatar e aceite da política.</p>
+
+            <h3>5. Uso dos Dados</h3>
+            <p>Os dados são usados exclusivamente para fins pedagógicos: exibição de ranking, acompanhamento de desempenho da turma e revisão de conteúdos. Não há compartilhamento com terceiros para fins comerciais.</p>
+
+            <h3>6. Ranking Público</h3>
+            <p>O ranking com apelido, avatar, pontuação e quiz realizado é visível publicamente dentro do site. Por isso, recomendamos o uso de apelidos que não revelem a identidade completa do aluno.</p>
+
+            <h3>7. Cookies e Armazenamento Local</h3>
+            <p>Este site pode usar localStorage do navegador para salvar preferências (apelido, avatar, aceite da política). Não usamos cookies de marketing, rastreadores de terceiros nem Google Analytics.</p>
+
+            <h3>8. Direitos do Aluno</h3>
+            <p>O aluno pode solicitar a remoção de seu registro do ranking entrando em contato com a professora responsável. Também pode limpar suas preferências locais a qualquer momento pelo botão "Limpar Preferências" na tela inicial.</p>
+
+            <h3>9. Contato</h3>
+            <p><strong>Prof.ª Rafaela Corrêa</strong><br>Curso Técnico em Redes de Computadores<br>CEET Vasco Coutinho</p>
+        </div>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- AVISO DE COOKIES / ARMAZENAMENTO LOCAL       -->
+    <!-- ============================================ -->
+    <div class="cookie-banner" id="cookie-banner">
+        <div class="cookie-content">
+            <p class="cookie-text">🍪 Este site pode usar armazenamento local do navegador para lembrar seu apelido, avatar e aceite da política de privacidade. Também registra sua pontuação no Firebase para exibir o ranking pedagógico. Não usamos cookies de marketing nem coletamos dados sensíveis.</p>
+            <div class="cookie-btns">
+                <button class="btn btn-primary" id="cookie-aceitar" style="padding:.5rem 1rem;font-size:.8rem;">Aceitar</button>
+                <button class="btn btn-secondary" id="cookie-politica" style="padding:.5rem 1rem;font-size:.8rem;">Ver Política</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<footer class="footer">
+    <p>Quiz Segurança de Redes – Desafio Técnico | Prof.ª Rafaela Corrêa | CEET Vasco Coutinho</p>
+    <p><a href="#" id="footer-privacidade">Política de Privacidade</a></p>
+</footer>
+
+<script type="module" src="script.js"></script>
+</body>
+</html>
