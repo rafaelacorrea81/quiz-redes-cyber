@@ -61,7 +61,7 @@
                     <span class="meta-tag">⭐⭐ Médio</span>
                 </div>
             </div>
-            <div class="quiz-card cyber" data-quiz="cyber-avancado">
+            <div class="quiz-card cyber" data-quiz="cyber">
                 <div class="card-icon">🔴</div>
                 <h3>Desafio Cyber Avançado</h3>
                 <p class="card-desc">Enfrente cenários avançados de segurança, incidentes, SIEM, GRC, LGPD e resposta técnica.</p>
@@ -113,7 +113,10 @@
                 <p class="feedback-explicacao" id="feedback-explicacao"></p>
                 <p class="feedback-incentivo" id="feedback-incentivo"></p>
             </div>
-            <button class="btn btn-primary btn-proxima" id="btn-proxima" style="display:none;">Próxima Pergunta ➡️</button>
+            <div class="nav-perguntas" id="nav-perguntas" style="display:none;">
+                <button class="btn btn-secondary btn-nav" id="btn-anterior">⬅️ Anterior</button>
+                <button class="btn btn-primary btn-nav" id="btn-proxima">Próxima ➡️</button>
+            </div>
         </div>
     </section>
 
@@ -181,7 +184,7 @@
             <button class="filtro-btn ativo" data-filtro="todos">Todos</button>
             <button class="filtro-btn" data-filtro="fundamentos">🟢 Fundamentos</button>
             <button class="filtro-btn" data-filtro="riscos">🟡 Riscos</button>
-            <button class="filtro-btn" data-filtro="cyber-avancado">🔴 Cyber</button>
+            <button class="filtro-btn" data-filtro="cyber">🔴 Cyber</button>
         </div>
 
         <div class="ranking-lista" id="ranking-lista">
