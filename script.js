@@ -16,8 +16,8 @@ const QUIZ_CONFIG = {
         subject: 'Segurança de Redes',
         nome: 'Fundamentos de Segurança de Redes',
         perguntas: quizFundamentos,
-        tempo: 45, alertaTempo: 10,
-        pontosPorAcerto: 10, bonusMax: 5,
+        tempo: 59, alertaTempo: 10,
+        pontosPorAcerto: 1000, bonusMax: 500,
         category: 'fundamentos', level: 'Fácil',
         cor: 'fundamentos', icon: '🟢',
         difficulty: 'Fácil'
@@ -29,7 +29,7 @@ const QUIZ_CONFIG = {
         nome: 'Análise de Riscos e Cenários',
         perguntas: quizRiscos,
         tempo: 120, alertaTempo: 20,
-        pontosPorAcerto: 20, bonusMax: 10,
+        pontosPorAcerto: 1500, bonusMax: 1000,
         category: 'riscos', level: 'Médio',
         cor: 'riscos', icon: '🟡',
         difficulty: 'Médio'
@@ -435,125 +435,154 @@ async function saveToFirestore(acertos,erros,tempoMedio) {
 }
 
 // ========== RANKING ==========
-let unsubscribeRanking = null;
+// Índices compostos ATIVOS no Firestore (quiz-redes-cyber):
+//   [1] Todos os resultados  → score DESC | timeUsed ASC | __name__ ASC
+//   [2] Por categoria        → category ASC | score DESC | timeUsed ASC | __name__ ASC
+// Ambos criados via Firebase Console → Firestore → Indexes.
 
-// -----------------------------------------------------------------------
-// NOTA SOBRE ÍNDICE COMPOSTO NO FIRESTORE:
-// Se no futuro você quiser orderBy no servidor com where+timeUsed, será
-// necessário criar este índice no Firebase Console:
-//   Firestore → Indexes → Add Index
-//   Collection ID : quizResults
-//   Fields        : category Ascending | score Descending | timeUsed Ascending | __name__ Ascending
-//
-// Por enquanto, usamos query simples (orderBy score apenas) e ordenamos
-// timeUsed e createdAt no cliente como critérios de desempate.
-// Isso elimina completamente a necessidade de índice composto.
-// -----------------------------------------------------------------------
+let rankingUnsubscribe = null; // listener ativo — cancelado antes de criar novo
 
 function loadRanking(filter = 'todos') {
     const lista = $('ranking-lista');
     lista.innerHTML = '<div class="ranking-loading">Carregando ranking...</div>';
-    if (!db) { lista.innerHTML = '<div class="ranking-vazio">Firebase não configurado. Ranking indisponível.</div>'; return; }
-    if (unsubscribeRanking) { unsubscribeRanking(); unsubscribeRanking = null; }
+
+    if (!db) {
+        lista.innerHTML = '<div class="ranking-vazio">Firebase não configurado. Ranking indisponível.</div>';
+        return;
+    }
+
+    // Cancela listener anterior para evitar múltiplos ativos
+    if (rankingUnsubscribe) {
+        rankingUnsubscribe();
+        rankingUnsubscribe = null;
+    }
+
+    console.log('Carregando ranking...');
+    console.log('Categoria selecionada:', filter);
 
     try {
         let q;
 
         if (filter && filter !== 'todos') {
-            // Filtro por categoria específica.
-            // Usa where('category') + orderBy('score') apenas — sem índice composto.
-            // Desempate por timeUsed e createdAt é feito no cliente.
+            // ── Filtro por categoria específica ──────────────────────────────
+            // Categorias válidas salvas no Firestore: fundamentos | riscos | cyber
+            // Índice composto: category ASC | score DESC | timeUsed ASC | __name__ ASC
             q = query(
                 collection(db, 'quizResults'),
                 where('category', '==', filter),
                 orderBy('score', 'desc'),
+                orderBy('timeUsed', 'asc'),
                 limit(50)
             );
         } else {
-            // "Todos": busca TODOS os documentos, sem filtro de categoria.
-            // Exibe participantes de todos os níveis (fundamentos, riscos, cyber).
+            // ── Filtro "Todos": sem where de categoria ───────────────────────
+            // Exibe participantes de TODOS os níveis (fundamentos, riscos, cyber)
+            // Índice composto: score DESC | timeUsed ASC | __name__ ASC
             q = query(
                 collection(db, 'quizResults'),
                 orderBy('score', 'desc'),
+                orderBy('timeUsed', 'asc'),
                 limit(50)
             );
         }
 
-        unsubscribeRanking = onSnapshot(q, snapshot => {
+        rankingUnsubscribe = onSnapshot(q, snapshot => {
+            console.log('Total de documentos encontrados:', snapshot.size);
+
             if (snapshot.empty) {
-                lista.innerHTML = '<div class="ranking-vazio">Nenhum resultado encontrado para esta categoria. Seja o primeiro! 🚀</div>';
+                lista.innerHTML = '<div class="ranking-vazio">Ainda não há participantes no ranking. Seja o primeiro! 🚀</div>';
                 return;
             }
 
-            // Coleta documentos e ordena no cliente:
-            // 1º) score desc  2º) timeUsed asc  3º) createdAt asc
+            // Coleta os docs — já vêm ordenados pelo servidor (score desc, timeUsed asc)
+            // Aplicamos createdAt como 3º critério de desempate no cliente
             let docs = [];
             snapshot.forEach(doc => docs.push(doc.data()));
+
             docs.sort((a, b) => {
                 if (b.score !== a.score) return b.score - a.score;
                 const tA = a.timeUsed ?? Infinity;
                 const tB = b.timeUsed ?? Infinity;
                 if (tA !== tB) return tA - tB;
+                // 3º critério: mais recente fica no fim (asc = quem chegou antes fica à frente)
                 const dA = a.createdAt?.toDate?.()?.getTime() ?? 0;
                 const dB = b.createdAt?.toDate?.()?.getTime() ?? 0;
                 return dA - dB;
             });
+
+            console.log('Total exibido no ranking:', docs.length);
 
             lista.innerHTML = '';
             docs.forEach((d, idx) => {
                 const pos = idx + 1;
                 const item = document.createElement('div'); item.className = 'ranking-item';
 
+                // ── Posição ──────────────────────────────────────────────────
                 const posEl = document.createElement('div'); posEl.className = 'ranking-pos';
-                if (pos === 1)      { posEl.classList.add('ouro');   posEl.textContent = '🥇'; }
+                if      (pos === 1) { posEl.classList.add('ouro');   posEl.textContent = '🥇'; }
                 else if (pos === 2) { posEl.classList.add('prata');  posEl.textContent = '🥈'; }
                 else if (pos === 3) { posEl.classList.add('bronze'); posEl.textContent = '🥉'; }
                 else                { posEl.textContent = `${pos}º`; }
 
-                const avatarEl = document.createElement('div'); avatarEl.className = 'ranking-avatar'; avatarEl.textContent = d.avatar || '🛡️';
-                const infoEl   = document.createElement('div'); infoEl.className   = 'ranking-info';
+                // ── Avatar ───────────────────────────────────────────────────
+                const avatarEl = document.createElement('div'); avatarEl.className = 'ranking-avatar';
+                avatarEl.textContent = d.avatar || '🛡️';
+
+                // ── Informações (nick + badge de categoria) ───────────────────
+                const infoEl = document.createElement('div'); infoEl.className = 'ranking-info';
 
                 const nickEl = document.createElement('div'); nickEl.className = 'ranking-nick';
                 const displayName  = d.studentName || d.nickname || 'Anônimo';
                 const displayClass = d.className ? ` [${d.className}]` : '';
                 nickEl.textContent = displayName + displayClass;
 
-                // Badge de categoria/nível — visível em todos os filtros,
-                // facilitando identificar de qual quiz cada participante é.
+                // Badge de categoria — sempre visível para identificar o nível do quiz
                 const tagEl    = document.createElement('div'); tagEl.className = 'ranking-quiz-tag';
                 const quizConf = QUIZ_CONFIG[d.quizId || d.category];
                 const displayCorrect = d.correctAnswers !== undefined
                     ? d.correctAnswers
-                    : (d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
+                    : Math.round(d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
                 tagEl.textContent = quizConf
-                    ? `${quizConf.icon} ${Math.floor(displayCorrect)}/${d.totalQuestions || 15} • ${d.difficulty || d.level || ''}`
-                    : (d.quizId || d.category || '');
+                    ? `${quizConf.icon} ${displayCorrect}/${d.totalQuestions || 15} acertos • ${d.difficulty || d.level || quizConf.level}`
+                    : (d.category || d.quizId || '');
 
-                infoEl.appendChild(nickEl); infoEl.appendChild(tagEl);
+                infoEl.appendChild(nickEl);
+                infoEl.appendChild(tagEl);
 
-                const scoreEl = document.createElement('div'); scoreEl.className = 'ranking-score'; scoreEl.textContent = d.score;
-                const metaEl  = document.createElement('div'); metaEl.className  = 'ranking-meta';
-                if (d.createdAt && d.createdAt.toDate) { metaEl.textContent = d.createdAt.toDate().toLocaleDateString('pt-BR'); }
+                // ── Pontuação ─────────────────────────────────────────────────
+                const scoreEl = document.createElement('div'); scoreEl.className = 'ranking-score';
+                scoreEl.textContent = d.score;
 
-                item.appendChild(posEl); item.appendChild(avatarEl); item.appendChild(infoEl); item.appendChild(scoreEl); item.appendChild(metaEl);
+                // ── Meta (tempo + data) ───────────────────────────────────────
+                const metaEl = document.createElement('div'); metaEl.className = 'ranking-meta';
+                const tempoStr = d.timeUsed !== undefined ? `⏱️ ${formatTime(d.timeUsed)}` : '';
+                const dataStr  = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('pt-BR') : '';
+                metaEl.textContent = [tempoStr, dataStr].filter(Boolean).join(' • ');
+
+                item.appendChild(posEl);
+                item.appendChild(avatarEl);
+                item.appendChild(infoEl);
+                item.appendChild(scoreEl);
+                item.appendChild(metaEl);
                 lista.appendChild(item);
             });
 
         }, error => {
             console.error('Erro ao carregar ranking:', error);
 
-            // Distingue erro de índice de erro de conexão
-            if (error.code === 'failed-precondition' || (error.message && error.message.toLowerCase().includes('index'))) {
+            if (error.code === 'failed-precondition' ||
+                (error.message && error.message.toLowerCase().includes('index'))) {
+                // Índice composto ainda não está ativo ou não existe
                 console.warn(
-                    '⚠️ AÇÃO NECESSÁRIA: O ranking requer um índice composto no Firestore.\n' +
-                    'Acesse Firebase Console → Firestore → Indexes → Add Index:\n' +
+                    '⚠️ ÍNDICE COMPOSTO NECESSÁRIO:\n' +
+                    '  Acesse Firebase Console → Firestore → Indexes → Add Index\n' +
                     '  Collection: quizResults\n' +
-                    '  Fields: category ASC | score DESC | timeUsed ASC | __name__ ASC\n' +
-                    'Ou clique no link do erro acima para criar automaticamente.'
+                    '  [Todos]      score DESC | timeUsed ASC | __name__ ASC\n' +
+                    '  [Categoria]  category ASC | score DESC | timeUsed ASC | __name__ ASC'
                 );
                 lista.innerHTML = '<div class="ranking-erro">⏳ O ranking está sendo configurado. Tente novamente em alguns minutos.</div>';
             } else {
-                lista.innerHTML = '<div class="ranking-erro">⚠️ Não foi possível carregar o ranking. Verifique sua conexão.</div>';
+                lista.innerHTML = '<div class="ranking-erro">⚠️ Não foi possível carregar o ranking no momento.</div>';
             }
         });
 
