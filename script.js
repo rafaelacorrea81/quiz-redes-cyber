@@ -435,77 +435,130 @@ async function saveToFirestore(acertos,erros,tempoMedio) {
 }
 
 // ========== RANKING ==========
-let unsubscribeRanking=null;
+let unsubscribeRanking = null;
 
-function loadRanking(filter='todos') {
-    const lista=$('ranking-lista');
-    lista.innerHTML='<div class="ranking-loading">Carregando ranking...</div>';
-    if(!db){lista.innerHTML='<div class="ranking-vazio">Firebase não configurado. Ranking indisponível.</div>';return;}
-    if(unsubscribeRanking){unsubscribeRanking();unsubscribeRanking=null;}
+// -----------------------------------------------------------------------
+// NOTA SOBRE ÍNDICE COMPOSTO NO FIRESTORE:
+// Se no futuro você quiser orderBy no servidor com where+timeUsed, será
+// necessário criar este índice no Firebase Console:
+//   Firestore → Indexes → Add Index
+//   Collection ID : quizResults
+//   Fields        : category Ascending | score Descending | timeUsed Ascending | __name__ Ascending
+//
+// Por enquanto, usamos query simples (orderBy score apenas) e ordenamos
+// timeUsed e createdAt no cliente como critérios de desempate.
+// Isso elimina completamente a necessidade de índice composto.
+// -----------------------------------------------------------------------
+
+function loadRanking(filter = 'todos') {
+    const lista = $('ranking-lista');
+    lista.innerHTML = '<div class="ranking-loading">Carregando ranking...</div>';
+    if (!db) { lista.innerHTML = '<div class="ranking-vazio">Firebase não configurado. Ranking indisponível.</div>'; return; }
+    if (unsubscribeRanking) { unsubscribeRanking(); unsubscribeRanking = null; }
 
     try {
         let q;
-        // Filtra por quizId se um filtro estiver ativo
-        if(filter&&filter!=='todos'){
-            // Nota: Para usar multiple orderBy com where, é necessário índice composto no Firestore
-            q=query(
-                collection(db,'quizResults'),
-                where('quizId','==',filter),
-                orderBy('score','desc'),
-                orderBy('timeUsed','asc'),
-                orderBy('createdAt','asc')
+
+        if (filter && filter !== 'todos') {
+            // Filtro por categoria específica.
+            // Usa where('category') + orderBy('score') apenas — sem índice composto.
+            // Desempate por timeUsed e createdAt é feito no cliente.
+            q = query(
+                collection(db, 'quizResults'),
+                where('category', '==', filter),
+                orderBy('score', 'desc'),
+                limit(50)
             );
         } else {
-            q=query(
-                collection(db,'quizResults'),
-                orderBy('score','desc'),
-                orderBy('timeUsed','asc'),
-                orderBy('createdAt','asc')
+            // "Todos": busca TODOS os documentos, sem filtro de categoria.
+            // Exibe participantes de todos os níveis (fundamentos, riscos, cyber).
+            q = query(
+                collection(db, 'quizResults'),
+                orderBy('score', 'desc'),
+                limit(50)
             );
         }
 
-        unsubscribeRanking=onSnapshot(q,snapshot=>{
-            if(snapshot.empty){lista.innerHTML='<div class="ranking-vazio">Nenhum resultado encontrado para esta categoria. Seja o primeiro! 🚀</div>';return;}
-            lista.innerHTML='';
-            let pos=1;
-            snapshot.forEach(doc=>{
-                const d=doc.data();
-                const item=document.createElement('div'); item.className='ranking-item';
+        unsubscribeRanking = onSnapshot(q, snapshot => {
+            if (snapshot.empty) {
+                lista.innerHTML = '<div class="ranking-vazio">Nenhum resultado encontrado para esta categoria. Seja o primeiro! 🚀</div>';
+                return;
+            }
 
-                const posEl=document.createElement('div'); posEl.className='ranking-pos';
-                if(pos===1){posEl.classList.add('ouro');posEl.textContent='🥇';}
-                else if(pos===2){posEl.classList.add('prata');posEl.textContent='🥈';}
-                else if(pos===3){posEl.classList.add('bronze');posEl.textContent='🥉';}
-                else{posEl.textContent=`${pos}º`;}
+            // Coleta documentos e ordena no cliente:
+            // 1º) score desc  2º) timeUsed asc  3º) createdAt asc
+            let docs = [];
+            snapshot.forEach(doc => docs.push(doc.data()));
+            docs.sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                const tA = a.timeUsed ?? Infinity;
+                const tB = b.timeUsed ?? Infinity;
+                if (tA !== tB) return tA - tB;
+                const dA = a.createdAt?.toDate?.()?.getTime() ?? 0;
+                const dB = b.createdAt?.toDate?.()?.getTime() ?? 0;
+                return dA - dB;
+            });
 
-                const avatarEl=document.createElement('div'); avatarEl.className='ranking-avatar'; avatarEl.textContent=d.avatar||'🛡️';
-                const infoEl=document.createElement('div'); infoEl.className='ranking-info';
-                
-                const nickEl=document.createElement('div'); nickEl.className='ranking-nick'; 
-                const displayName = d.studentName || d.nickname || 'Anônimo';
+            lista.innerHTML = '';
+            docs.forEach((d, idx) => {
+                const pos = idx + 1;
+                const item = document.createElement('div'); item.className = 'ranking-item';
+
+                const posEl = document.createElement('div'); posEl.className = 'ranking-pos';
+                if (pos === 1)      { posEl.classList.add('ouro');   posEl.textContent = '🥇'; }
+                else if (pos === 2) { posEl.classList.add('prata');  posEl.textContent = '🥈'; }
+                else if (pos === 3) { posEl.classList.add('bronze'); posEl.textContent = '🥉'; }
+                else                { posEl.textContent = `${pos}º`; }
+
+                const avatarEl = document.createElement('div'); avatarEl.className = 'ranking-avatar'; avatarEl.textContent = d.avatar || '🛡️';
+                const infoEl   = document.createElement('div'); infoEl.className   = 'ranking-info';
+
+                const nickEl = document.createElement('div'); nickEl.className = 'ranking-nick';
+                const displayName  = d.studentName || d.nickname || 'Anônimo';
                 const displayClass = d.className ? ` [${d.className}]` : '';
                 nickEl.textContent = displayName + displayClass;
 
-                const tagEl=document.createElement('div'); tagEl.className='ranking-quiz-tag';
-                const quizConf=QUIZ_CONFIG[d.quizId || d.category];
-                const displayCorrect = d.correctAnswers !== undefined ? d.correctAnswers : (d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
-                tagEl.textContent=quizConf?`${quizConf.icon} ${Math.floor(displayCorrect)}/${d.totalQuestions||15} • ${d.difficulty||d.level||''}`:(d.quizId||d.category||'');
+                // Badge de categoria/nível — visível em todos os filtros,
+                // facilitando identificar de qual quiz cada participante é.
+                const tagEl    = document.createElement('div'); tagEl.className = 'ranking-quiz-tag';
+                const quizConf = QUIZ_CONFIG[d.quizId || d.category];
+                const displayCorrect = d.correctAnswers !== undefined
+                    ? d.correctAnswers
+                    : (d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
+                tagEl.textContent = quizConf
+                    ? `${quizConf.icon} ${Math.floor(displayCorrect)}/${d.totalQuestions || 15} • ${d.difficulty || d.level || ''}`
+                    : (d.quizId || d.category || '');
+
                 infoEl.appendChild(nickEl); infoEl.appendChild(tagEl);
 
-                const scoreEl=document.createElement('div'); scoreEl.className='ranking-score'; scoreEl.textContent=d.score;
-                const metaEl=document.createElement('div'); metaEl.className='ranking-meta';
-                if(d.createdAt&&d.createdAt.toDate){metaEl.textContent=d.createdAt.toDate().toLocaleDateString('pt-BR');}
+                const scoreEl = document.createElement('div'); scoreEl.className = 'ranking-score'; scoreEl.textContent = d.score;
+                const metaEl  = document.createElement('div'); metaEl.className  = 'ranking-meta';
+                if (d.createdAt && d.createdAt.toDate) { metaEl.textContent = d.createdAt.toDate().toLocaleDateString('pt-BR'); }
 
-                item.appendChild(posEl);item.appendChild(avatarEl);item.appendChild(infoEl);item.appendChild(scoreEl);item.appendChild(metaEl);
+                item.appendChild(posEl); item.appendChild(avatarEl); item.appendChild(infoEl); item.appendChild(scoreEl); item.appendChild(metaEl);
                 lista.appendChild(item);
-                pos++;
             });
-        },error=>{
-            console.error('Erro ao carregar ranking:',error);
-            lista.innerHTML='<div class="ranking-erro">⚠️ Não foi possível carregar o ranking. Verifique sua conexão.</div>';
+
+        }, error => {
+            console.error('Erro ao carregar ranking:', error);
+
+            // Distingue erro de índice de erro de conexão
+            if (error.code === 'failed-precondition' || (error.message && error.message.toLowerCase().includes('index'))) {
+                console.warn(
+                    '⚠️ AÇÃO NECESSÁRIA: O ranking requer um índice composto no Firestore.\n' +
+                    'Acesse Firebase Console → Firestore → Indexes → Add Index:\n' +
+                    '  Collection: quizResults\n' +
+                    '  Fields: category ASC | score DESC | timeUsed ASC | __name__ ASC\n' +
+                    'Ou clique no link do erro acima para criar automaticamente.'
+                );
+                lista.innerHTML = '<div class="ranking-erro">⏳ O ranking está sendo configurado. Tente novamente em alguns minutos.</div>';
+            } else {
+                lista.innerHTML = '<div class="ranking-erro">⚠️ Não foi possível carregar o ranking. Verifique sua conexão.</div>';
+            }
         });
-    } catch(error){
-        console.error('Erro na query do ranking:',error);
-        lista.innerHTML='<div class="ranking-erro">⚠️ Erro ao acessar o ranking.</div>';
+
+    } catch (error) {
+        console.error('Erro na query do ranking:', error);
+        lista.innerHTML = '<div class="ranking-erro">⚠️ Erro ao acessar o ranking.</div>';
     }
 }
