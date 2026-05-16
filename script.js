@@ -1,7 +1,7 @@
 // script.js — Quiz Segurança de Redes
 // Correções: Banco grande, sorteio aleatório, embaralhamento de respostas, explicações pedagógicas, e ranking completo.
 
-import { db, collection, addDoc, onSnapshot, query, orderBy, limit, where, serverTimestamp } from './firebase-config.js';
+import { db, collection, addDoc, onSnapshot, serverTimestamp } from './firebase-config.js';
 import { quizFundamentos, quizRiscos, quizCyberAvancado } from './perguntas.js';
 
 const PRIVACY_VERSION = "1.0";
@@ -124,7 +124,7 @@ function initEvents() {
     $('cookie-aceitar').addEventListener('click',()=>{try{localStorage.setItem('quizRedesCyber_cookieAccepted','true');}catch(e){}$('cookie-banner').classList.remove('visivel');});
     $('cookie-politica').addEventListener('click',()=>$('modal-privacidade').classList.add('visivel'));
     $('btn-limpar-prefs').addEventListener('click',clearPrefs);
-    $('ranking-filtros').addEventListener('click',e=>{if(e.target.classList.contains('filtro-btn')){$('ranking-filtros').querySelectorAll('.filtro-btn').forEach(b=>b.classList.remove('ativo'));e.target.classList.add('ativo');loadRanking(e.target.dataset.filtro);}});
+    // Nota: filtros por categoria foram removidos — ranking é geral (todos os quizzes).
 }
 
 // ========== START QUIZ ==========
@@ -434,17 +434,30 @@ async function saveToFirestore(acertos,erros,tempoMedio) {
     catch(error){console.error('Erro ao salvar resultado:',error);statusEl.textContent='⚠️ Não foi possível enviar o resultado.';}
 }
 
-// ========== RANKING ==========
-// Índices compostos ATIVOS no Firestore (quiz-redes-cyber):
-//   [1] Todos os resultados  → score DESC | timeUsed ASC | __name__ ASC
-//   [2] Por categoria        → category ASC | score DESC | timeUsed ASC | __name__ ASC
-// Ambos criados via Firebase Console → Firestore → Indexes.
+// ========== CATEGORIA: NOME AMIGÁVEL ==========
+// Converte o valor salvo no Firestore para um label legível.
+// Compatível com nomes antigos (facil/medio/dificil) e nomes atuais.
+function getCategoryLabel(category) {
+    const labels = {
+        fundamentos : '🟢 Fundamentos',
+        riscos      : '🟡 Riscos',
+        cyber       : '🔴 Cyber Avançado',
+        facil       : '🟢 Fundamentos',
+        medio       : '🟡 Riscos',
+        dificil     : '🔴 Cyber Avançado'
+    };
+    return labels[category] || category || '';
+}
 
-let rankingUnsubscribe = null; // listener ativo — cancelado antes de criar novo
+// ========== RANKING GERAL ==========
+// Busca TODA a coleção quizResults com onSnapshot() — sem orderBy nem where.
+// Ordenação 100% no cliente: sem necessidade de índice composto.
 
-function loadRanking(filter = 'todos') {
+let rankingUnsubscribe = null; // controla o listener ativo
+
+function loadRanking() {
     const lista = $('ranking-lista');
-    lista.innerHTML = '<div class="ranking-loading">Carregando ranking...</div>';
+    lista.innerHTML = '<div class="ranking-loading">Carregando ranking geral...</div>';
 
     if (!db) {
         lista.innerHTML = '<div class="ranking-vazio">Firebase não configurado. Ranking indisponível.</div>';
@@ -457,137 +470,90 @@ function loadRanking(filter = 'todos') {
         rankingUnsubscribe = null;
     }
 
-    console.log('Carregando ranking...');
-    console.log('Categoria selecionada:', filter);
+    console.log('Carregando ranking geral...');
 
-    try {
-        let q;
+    // Escuta TODA a coleção em tempo real — sem filtros, sem orderBy
+    rankingUnsubscribe = onSnapshot(collection(db, 'quizResults'), snapshot => {
+        console.log('Total de documentos encontrados:', snapshot.size);
 
-        if (filter && filter !== 'todos') {
-            // ── Filtro por categoria específica ──────────────────────────────
-            // Categorias válidas salvas no Firestore: fundamentos | riscos | cyber
-            // Índice composto: category ASC | score DESC | timeUsed ASC | __name__ ASC
-            q = query(
-                collection(db, 'quizResults'),
-                where('category', '==', filter),
-                orderBy('score', 'desc'),
-                orderBy('timeUsed', 'asc'),
-                limit(50)
-            );
-        } else {
-            // ── Filtro "Todos": sem where de categoria ───────────────────────
-            // Exibe participantes de TODOS os níveis (fundamentos, riscos, cyber)
-            // Índice composto: score DESC | timeUsed ASC | __name__ ASC
-            q = query(
-                collection(db, 'quizResults'),
-                orderBy('score', 'desc'),
-                orderBy('timeUsed', 'asc'),
-                limit(50)
-            );
+        if (snapshot.empty) {
+            lista.innerHTML = '<div class="ranking-vazio">Ainda não há participantes no ranking. Seja o primeiro! 🚀</div>';
+            return;
         }
 
-        rankingUnsubscribe = onSnapshot(q, snapshot => {
-            console.log('Total de documentos encontrados:', snapshot.size);
-
-            if (snapshot.empty) {
-                lista.innerHTML = '<div class="ranking-vazio">Ainda não há participantes no ranking. Seja o primeiro! 🚀</div>';
-                return;
-            }
-
-            // Coleta os docs — já vêm ordenados pelo servidor (score desc, timeUsed asc)
-            // Aplicamos createdAt como 3º critério de desempate no cliente
-            let docs = [];
-            snapshot.forEach(doc => docs.push(doc.data()));
-
-            docs.sort((a, b) => {
-                if (b.score !== a.score) return b.score - a.score;
-                const tA = a.timeUsed ?? Infinity;
-                const tB = b.timeUsed ?? Infinity;
-                if (tA !== tB) return tA - tB;
-                // 3º critério: mais recente fica no fim (asc = quem chegou antes fica à frente)
-                const dA = a.createdAt?.toDate?.()?.getTime() ?? 0;
-                const dB = b.createdAt?.toDate?.()?.getTime() ?? 0;
-                return dA - dB;
-            });
-
-            console.log('Total exibido no ranking:', docs.length);
-
-            lista.innerHTML = '';
-            docs.forEach((d, idx) => {
-                const pos = idx + 1;
-                const item = document.createElement('div'); item.className = 'ranking-item';
-
-                // ── Posição ──────────────────────────────────────────────────
-                const posEl = document.createElement('div'); posEl.className = 'ranking-pos';
-                if      (pos === 1) { posEl.classList.add('ouro');   posEl.textContent = '🥇'; }
-                else if (pos === 2) { posEl.classList.add('prata');  posEl.textContent = '🥈'; }
-                else if (pos === 3) { posEl.classList.add('bronze'); posEl.textContent = '🥉'; }
-                else                { posEl.textContent = `${pos}º`; }
-
-                // ── Avatar ───────────────────────────────────────────────────
-                const avatarEl = document.createElement('div'); avatarEl.className = 'ranking-avatar';
-                avatarEl.textContent = d.avatar || '🛡️';
-
-                // ── Informações (nick + badge de categoria) ───────────────────
-                const infoEl = document.createElement('div'); infoEl.className = 'ranking-info';
-
-                const nickEl = document.createElement('div'); nickEl.className = 'ranking-nick';
-                const displayName  = d.studentName || d.nickname || 'Anônimo';
-                const displayClass = d.className ? ` [${d.className}]` : '';
-                nickEl.textContent = displayName + displayClass;
-
-                // Badge de categoria — sempre visível para identificar o nível do quiz
-                const tagEl    = document.createElement('div'); tagEl.className = 'ranking-quiz-tag';
-                const quizConf = QUIZ_CONFIG[d.quizId || d.category];
-                const displayCorrect = d.correctAnswers !== undefined
-                    ? d.correctAnswers
-                    : Math.round(d.score / (quizConf ? quizConf.pontosPorAcerto : 10));
-                tagEl.textContent = quizConf
-                    ? `${quizConf.icon} ${displayCorrect}/${d.totalQuestions || 15} acertos • ${d.difficulty || d.level || quizConf.level}`
-                    : (d.category || d.quizId || '');
-
-                infoEl.appendChild(nickEl);
-                infoEl.appendChild(tagEl);
-
-                // ── Pontuação ─────────────────────────────────────────────────
-                const scoreEl = document.createElement('div'); scoreEl.className = 'ranking-score';
-                scoreEl.textContent = d.score;
-
-                // ── Meta (tempo + data) ───────────────────────────────────────
-                const metaEl = document.createElement('div'); metaEl.className = 'ranking-meta';
-                const tempoStr = d.timeUsed !== undefined ? `⏱️ ${formatTime(d.timeUsed)}` : '';
-                const dataStr  = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('pt-BR') : '';
-                metaEl.textContent = [tempoStr, dataStr].filter(Boolean).join(' • ');
-
-                item.appendChild(posEl);
-                item.appendChild(avatarEl);
-                item.appendChild(infoEl);
-                item.appendChild(scoreEl);
-                item.appendChild(metaEl);
-                lista.appendChild(item);
-            });
-
-        }, error => {
-            console.error('Erro ao carregar ranking:', error);
-
-            if (error.code === 'failed-precondition' ||
-                (error.message && error.message.toLowerCase().includes('index'))) {
-                // Índice composto ainda não está ativo ou não existe
-                console.warn(
-                    '⚠️ ÍNDICE COMPOSTO NECESSÁRIO:\n' +
-                    '  Acesse Firebase Console → Firestore → Indexes → Add Index\n' +
-                    '  Collection: quizResults\n' +
-                    '  [Todos]      score DESC | timeUsed ASC | __name__ ASC\n' +
-                    '  [Categoria]  category ASC | score DESC | timeUsed ASC | __name__ ASC'
-                );
-                lista.innerHTML = '<div class="ranking-erro">⏳ O ranking está sendo configurado. Tente novamente em alguns minutos.</div>';
-            } else {
-                lista.innerHTML = '<div class="ranking-erro">⚠️ Não foi possível carregar o ranking no momento.</div>';
-            }
+        // Coleta todos os documentos
+        let resultados = [];
+        snapshot.forEach(doc => {
+            resultados.push({ id: doc.id, ...doc.data() });
         });
 
-    } catch (error) {
-        console.error('Erro na query do ranking:', error);
-        lista.innerHTML = '<div class="ranking-erro">⚠️ Erro ao acessar o ranking.</div>';
-    }
+        // Ordena no cliente:
+        // 1º) maior score  2º) menor timeUsed  3º) mais recente primeiro
+        resultados.sort((a, b) => {
+            if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+            if ((a.timeUsed || 0) !== (b.timeUsed || 0)) return (a.timeUsed || 0) - (b.timeUsed || 0);
+            const dataA = a.createdAt?.seconds || 0;
+            const dataB = b.createdAt?.seconds || 0;
+            return dataB - dataA; // mais recente primeiro no empate total
+        });
+
+        console.log('Total exibido no ranking:', resultados.length);
+
+        lista.innerHTML = '';
+        resultados.forEach((d, idx) => {
+            const pos = idx + 1;
+            const item = document.createElement('div'); item.className = 'ranking-item';
+
+            // ── Posição ──────────────────────────────────────────────────────
+            const posEl = document.createElement('div'); posEl.className = 'ranking-pos';
+            if      (pos === 1) { posEl.classList.add('ouro');   posEl.textContent = '🥇'; }
+            else if (pos === 2) { posEl.classList.add('prata');  posEl.textContent = '🥈'; }
+            else if (pos === 3) { posEl.classList.add('bronze'); posEl.textContent = '🥉'; }
+            else                { posEl.textContent = `${pos}º`; }
+
+            // ── Avatar ────────────────────────────────────────────────────────
+            const avatarEl = document.createElement('div'); avatarEl.className = 'ranking-avatar';
+            avatarEl.textContent = d.avatar || '🛡️';
+
+            // ── Informações (nick + turma + badge de categoria) ───────────────
+            const infoEl = document.createElement('div'); infoEl.className = 'ranking-info';
+
+            const nickEl = document.createElement('div'); nickEl.className = 'ranking-nick';
+            const displayName  = d.studentName || d.nickname || 'Anônimo';
+            const displayClass = d.className ? ` [${d.className}]` : '';
+            nickEl.textContent = displayName + displayClass;
+
+            // Badge de categoria — visível para identificar o nível do quiz
+            const tagEl = document.createElement('div'); tagEl.className = 'ranking-quiz-tag';
+            const catLabel    = getCategoryLabel(d.category || d.quizId);
+            const acertos     = d.correctAnswers ?? Math.round((d.score || 0) / (QUIZ_CONFIG[d.category]?.pontosPorAcerto || 10));
+            const totalQ      = d.totalQuestions || 15;
+            const dificuldade = d.difficulty || d.level || '';
+            tagEl.textContent = `${catLabel} • ${acertos}/${totalQ} acertos${dificuldade ? ' • ' + dificuldade : ''}`;
+
+            infoEl.appendChild(nickEl);
+            infoEl.appendChild(tagEl);
+
+            // ── Pontuação ─────────────────────────────────────────────────────
+            const scoreEl = document.createElement('div'); scoreEl.className = 'ranking-score';
+            scoreEl.textContent = d.score || 0;
+
+            // ── Meta (tempo + data) ───────────────────────────────────────────
+            const metaEl = document.createElement('div'); metaEl.className = 'ranking-meta';
+            const tempoStr = d.timeUsed !== undefined ? `⏱️ ${formatTime(d.timeUsed)}` : '';
+            const dataStr  = d.createdAt?.toDate ? d.createdAt.toDate().toLocaleDateString('pt-BR') : '';
+            metaEl.textContent = [tempoStr, dataStr].filter(Boolean).join(' • ');
+
+            item.appendChild(posEl);
+            item.appendChild(avatarEl);
+            item.appendChild(infoEl);
+            item.appendChild(scoreEl);
+            item.appendChild(metaEl);
+            lista.appendChild(item);
+        });
+
+    }, error => {
+        console.error('Erro ao carregar ranking:', error);
+        lista.innerHTML = '<div class="ranking-erro">⚠️ Não foi possível carregar o ranking no momento.</div>';
+    });
 }
