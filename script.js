@@ -1,7 +1,7 @@
 // script.js — Quiz Segurança de Redes
 // Correções: Banco grande, sorteio aleatório, embaralhamento de respostas, explicações pedagógicas, e ranking completo.
 
-import { db, collection, addDoc, onSnapshot, serverTimestamp } from './firebase-config.js';
+import { db, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from './firebase-config.js';
 import { quizFundamentos, quizRiscos, quizCyberAvancado } from './perguntas.js';
 
 const PRIVACY_VERSION = "1.0";
@@ -112,9 +112,19 @@ function initEvents() {
     $('btn-iniciar').addEventListener('click',startQuiz);
     $('btn-ver-ranking').addEventListener('click',()=>{showScreen('tela-ranking');loadRanking();});
     $('btn-ranking-resultado').addEventListener('click',()=>{showScreen('tela-ranking');loadRanking();});
-    $('btn-voltar-ranking').addEventListener('click',()=>showScreen('tela-inicio'));
-    $('btn-voltar-inicio').addEventListener('click',()=>showScreen('tela-inicio'));
-    $('btn-jogar-novamente').addEventListener('click',()=>showScreen('tela-inicio'));
+    $('btn-voltar-ranking').addEventListener('click', () => {
+        // Cancela listener do ranking ao sair da tela para liberar recursos
+        if (rankingUnsubscribe) { rankingUnsubscribe(); rankingUnsubscribe = null; }
+        showScreen('tela-inicio');
+    });
+    $('btn-voltar-inicio').addEventListener('click', () => {
+        if (rankingUnsubscribe) { rankingUnsubscribe(); rankingUnsubscribe = null; }
+        showScreen('tela-inicio');
+    });
+    $('btn-jogar-novamente').addEventListener('click', () => {
+        if (rankingUnsubscribe) { rankingUnsubscribe(); rankingUnsubscribe = null; }
+        showScreen('tela-inicio');
+    });
     $('btn-proxima').addEventListener('click',nextQuestion);
     $('btn-anterior').addEventListener('click',prevQuestion);
     $('link-privacidade').addEventListener('click',e=>{e.preventDefault();$('modal-privacidade').classList.add('visivel');});
@@ -472,8 +482,12 @@ function loadRanking() {
 
     console.log('Carregando ranking geral...');
 
-    // Escuta TODA a coleção em tempo real — sem filtros, sem orderBy
-    rankingUnsubscribe = onSnapshot(collection(db, 'quizResults'), snapshot => {
+    // Usa query com orderBy score para garantir compatibilidade com regras do Firestore.
+    // Ordenação final (timeUsed, createdAt) é feita no cliente.
+    // Requer apenas índice simples no campo score (criado automaticamente pelo Firestore).
+    const q = query(collection(db, 'quizResults'), orderBy('score', 'desc'));
+
+    rankingUnsubscribe = onSnapshot(q, snapshot => {
         console.log('Total de documentos encontrados:', snapshot.size);
 
         if (snapshot.empty) {
