@@ -439,9 +439,33 @@ async function saveToFirestore(acertos,erros,tempoMedio) {
         privacyPolicyVersion: PRIVACY_VERSION,
         createdAt: serverTimestamp()
     };
-    if(!db){statusEl.textContent='Modo offline — resultado salvo apenas localmente.';return;}
-    try{await addDoc(collection(db,'quizResults'),data);statusEl.textContent='✅ Resultado enviado com sucesso!';}
-    catch(error){console.error('Erro ao salvar resultado:',error);statusEl.textContent='⚠️ Não foi possível enviar o resultado.';}
+    if (!db) { statusEl.textContent = 'Modo offline — resultado salvo apenas localmente.'; return; }
+    try {
+        await addDoc(collection(db, 'quizResults'), data);
+        statusEl.textContent = '✅ Resultado enviado com sucesso!';
+        console.log('✅ Resultado salvo no Firestore com sucesso.');
+    } catch (error) {
+        console.error('❌ Erro ao salvar resultado:', error.code, error.message);
+
+        if (error.code === 'permission-denied' || error.message?.includes('permissions')) {
+            console.error(
+                '🔒 REGRAS DO FIRESTORE BLOQUEANDO ESCRITA\n' +
+                'Acesse Firebase Console → Firestore → Rules e configure:\n\n' +
+                'rules_version = \'2\';\n' +
+                'service cloud.firestore {\n' +
+                '  match /databases/{database}/documents {\n' +
+                '    match /quizResults/{docId} {\n' +
+                '      allow read: if true;\n' +
+                '      allow create: if request.resource.data.keys().hasAll(["score","category","createdAt"]);\n' +
+                '    }\n' +
+                '  }\n' +
+                '}'
+            );
+            statusEl.textContent = '🔒 Permissão negada. Verifique as regras do Firestore.';
+        } else {
+            statusEl.textContent = '⚠️ Não foi possível enviar o resultado. Tente novamente.';
+        }
+    }
 }
 
 // ========== CATEGORIA: NOME AMIGÁVEL ==========
